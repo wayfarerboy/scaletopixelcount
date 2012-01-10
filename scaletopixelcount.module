@@ -1,0 +1,158 @@
+<?php
+// $Id: scaletopixelcount.effects.inc,v 0.1 2011-10-03 10:19:54 wayfarer_boy Exp $
+
+/**
+ * @file
+ * Functions needed to execute image effects provided by the scaletopixelcount module.
+ */
+
+/**
+ * Implements hook_theme().
+ */
+function scaletopixelcount_theme() {
+  return array(
+    'image_pixelscale_summary' => array(
+      'variables' => array('data' => NULL),
+    ),
+  );
+}
+
+/**
+ * Implements hook_image_effect_info().
+ */
+function scaletopixelcount_image_effect_info() {
+  $effects = array(
+    'scaletopixelcount_scale' => array(
+      'label' => t('Scale to pixel count'),
+      'help' => t('Scales the image to a maximum pixel count (or optional max width/height, whichever is smaller).'),
+      'effect callback' => 'scaletopixelcount_scale_effect',
+      'form callback' => 'scaletopixelcount_image_pixelscale_form',
+      'summary theme' => 'scaletopixelcount_image_pixelscale_summary',
+    ),
+  );
+  return $effects;
+}
+
+/**
+ * Form structure for the image pixelcount resize form.
+ *
+ * Note that this is not a complete form, it only contains the portion of the
+ * form for configuring the resize options. Therefore it does not not need to
+ * include metadata about the effect, nor a submit button.
+ *
+ * @param $data
+ *   The current configuration for this resize effect.
+ */
+function scaletopixelcount_image_pixelscale_form($data) {
+  $form['maxpixels'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Max pixel count'),
+    '#default_value' => isset($data['maxpixels']) ? $data['maxpixels'] : '',
+    '#field_suffix' => ' ' . t('pixels'),
+    '#required' => TRUE,
+    '#size' => 10,
+    '#element_validate' => array('image_effect_integer_validate'),
+    '#allow_negative' => FALSE,
+  );
+  $form['maxwidth'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Max width'),
+    '#default_value' => isset($data['maxwidth']) ? $data['maxwidth'] : '',
+    '#field_suffix' => ' ' . t('pixels'),
+    '#required' => FALSE,
+    '#size' => 10,
+    '#element_validate' => array('image_effect_integer_validate'),
+    '#allow_negative' => FALSE,
+  );
+  $form['maxheight'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Max height'),
+    '#default_value' => isset($data['maxheight']) ? $data['maxheight'] : '',
+    '#field_suffix' => ' ' . t('pixels'),
+    '#required' => FALSE,
+    '#size' => 10,
+    '#element_validate' => array('image_effect_integer_validate'),
+    '#allow_negative' => FALSE,
+  );
+  $form['#element_validate'] = array('scaletopixelcount_image_effect_pixelscale_validate');
+  $form['upscale'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => (isset($data['upscale'])) ? $data['upscale'] : 0,
+    '#title' => t('Allow Upscaling'),
+    '#description' => t('Let scale make images larger than their original size'),
+  );
+  return $form;
+}
+
+/**
+ * Element validate handler to ensure that either a height or a width is
+ * specified.
+ */
+function scaletopixelcount_image_effect_pixelscale_validate($element, &$form_state) {
+  if (empty($element['maxpixels']['#value'])) {
+    form_error($element, t('Maximum pixels cannot be blank.'));
+  }
+}
+
+/**
+ * Returns HTML for a summary of an image scale effect.
+ *
+ * @param $variables
+ *   An associative array containing:
+ *   - data: The current configuration for this scale effect.
+ *
+ * @ingroup themeable
+ */
+function theme_scaletopixelcount_image_pixelscale_summary($variables) {
+  $data = $variables['data'];
+
+  $output = $data['maxpixels']  . ' total pixels';
+
+  if ($data['maxwidth']) $output .= ', <='.check_plain($data['maxwidth']).'w';
+  if ($data['maxheight']) $output .= ', <='.check_plain($data['maxheight']).'h';
+
+  if ($data['upscale']) $output .= ' (' . t('upscaling allowed') . ')';
+
+  return $output;
+}
+
+
+/**
+ * Image effect callback; Scale and Smart Crop an image resource.
+ *
+ * @param $image
+ *   An image object returned by image_load().
+ * @param $data
+ *   An array of attributes to use when performing the scale effect with the
+ *   following items:
+ *   - "maxpixels": An integer representing the desired width in pixels.
+ *   - "maxwidth": An integer representing the desired width in pixels.
+ *   - "maxheight": An integer representing the desired height in pixels.
+ *   - "upscale": A Boolean indicating that the image should be upscalled if
+ *     the dimensions are larger than the original image.
+ *
+ * @return
+ *   TRUE on success. FALSE on failure to scale image.
+ */
+function scaletopixelcount_scale_effect(&$image, $data) {
+
+  // Set sane default values.
+  $data += array(
+    'upscale' => FALSE,
+  );
+
+  // Set impossibly large values if the width and height aren't set.
+  $data['maxwidth'] = empty($data['maxwidth']) ? PHP_INT_MAX : $data['maxwidth'];
+  $data['maxheight'] = empty($data['maxheight']) ? PHP_INT_MAX : $data['maxheight'];
+  $scale = min(
+            sqrt($data['maxpixels'] / ($image->info['width'] * $image->info['height'])),
+            $data['maxwidth'] / $image->info['width'],
+            $data['maxheight'] / $image->info['height']
+           );
+  if (!image_resize($image, $scale * $image->info['width'], $scale * $image->info['height'])) {
+    watchdog('image', 'Image scale to pixel count failed using the %toolkit toolkit on %path (%mimetype, %dimensions)', array('%toolkit' => $image->toolkit, '%path' => $image->source, '%mimetype' => $image->info['mime_type'], '%dimensions' => $image->info['height'] . 'x' . $image->info['height']), WATCHDOG_ERROR);
+    return FALSE;
+  }
+
+  return TRUE;
+}
